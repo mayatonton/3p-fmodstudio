@@ -53,20 +53,25 @@ case "$FMOD_ARCHIVE" in
         # into the repo instead.
         #
         bash_install_dir="$(pwd)/$FMOD_ROOT_NAME$FMOD_VERSION$FMOD_PLATFORM"
-        mkdir -p $bash_install_dir
         win_install_dir=`cygpath -w "$bash_install_dir"`
-        #
-        # This will invoke the UAC dialog to confirm permission before
-        # proceeding.  You can run the build on a 'modified' system with
-        # permissions granted to the build account or you might be able
-        # to get to the dialog using remote desktop.  Either way, manual
-        # preparation for this is required.
-        #
-        chmod +x "$FMOD_ARCHIVE"
-        cmd.exe /c "$FMOD_ARCHIVE /S /D=$win_install_dir"
-        if [ ! -d "$win_install_dir" ]; then
-            echo "Please run $FMOD_ARCHIVE as administrator and install to  $win_install_dir"
-            exit 1
+        if [ -f "$bash_install_dir/api/core/inc/fmod.h" ]; then
+            echo "FMOD SDK already extracted at $bash_install_dir, skipping installer"
+        else
+            mkdir -p $bash_install_dir
+            #
+            # This will invoke the UAC dialog to confirm permission before
+            # proceeding.  You can run the build on a 'modified' system with
+            # permissions granted to the build account or you might be able
+            # to get to the dialog using remote desktop.  Either way, manual
+            # preparation for this is required.
+            #
+            chmod +x "$FMOD_ARCHIVE"
+            archive_abs_win=`cygpath -w "$(pwd)/$FMOD_ARCHIVE"`
+            cmd.exe /c "$archive_abs_win /S /D=$win_install_dir"
+            if [ ! -f "$bash_install_dir/api/core/inc/fmod.h" ]; then
+                echo "Please run $FMOD_ARCHIVE as administrator and install to  $win_install_dir"
+                exit 1
+            fi
         fi
     ;;
     *.tar.gz)
@@ -112,6 +117,42 @@ pushd "$FMOD_SOURCE_DIR"
             cp $COPYFLAGS "api/core/lib/x64/fmod_vc.lib" "$stage_release"
             cp $COPYFLAGS "api/core/lib/x64/fmodL.dll" "$stage_debug"
             cp $COPYFLAGS "api/core/lib/x64/fmod.dll" "$stage_release"
+
+            # Stage SDK-bundled opus.dll (FSBank's encoder library, but exports
+            # full decode + multistream symbols too). Used by AYAstorm's FMOD
+            # codec plugin to add Opus support that libfmod itself lacks.
+            cp $COPYFLAGS "api/fsbank/lib/x64/opus.dll" "$stage_release/opus.dll"
+            cp $COPYFLAGS "api/fsbank/lib/x64/opus.dll" "$stage_debug/opus.dll"
+
+            # FMOD's Windows SDK ships opus.dll without an import library, so
+            # generate opus.lib from the DLL's export table using MSVC tools.
+            VSWHERE="/cygdrive/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+            VS_INSTALL_WIN=$("$VSWHERE" -latest -property installationPath | tr -d '\r')
+            VS_INSTALL=$(cygpath -u "$VS_INSTALL_WIN")
+            MSVC_DIR=$(ls -d "$VS_INSTALL/VC/Tools/MSVC/"*/ | sort -V | tail -1)
+            DUMPBIN="${MSVC_DIR}bin/Hostx64/x64/dumpbin.exe"
+            LIBEXE="${MSVC_DIR}bin/Hostx64/x64/lib.exe"
+            opus_workdir="$(pwd)/opus_implib_workdir"
+            rm -rf "$opus_workdir"
+            mkdir -p "$opus_workdir"
+            cp "api/fsbank/lib/x64/opus.dll" "$opus_workdir/opus.dll"
+            pushd "$opus_workdir"
+                "$DUMPBIN" /EXPORTS opus.dll | tr -d '\r' > opus_exports.txt
+                # Match dumpbin's "ordinal hint RVA name" rows: 4 fields, first
+                # is decimal ordinal, last is the export symbol.  Strip CR
+                # first (dumpbin emits CRLF on Windows; cygwin's gawk leaves
+                # \r in the field, which breaks both `$` anchors and identifier
+                # character classes — symptom: the .def file ends up empty
+                # except for `LIBRARY opus`/`EXPORTS` and lib.exe silently
+                # produces a 1.5KB import library that has no per-function
+                # thunks).  lib.exe itself wants CRLF in the .def file.
+                { printf 'LIBRARY opus\r\nEXPORTS\r\n'; \
+                  awk 'BEGIN{ORS="\r\n"} NF==4 && $1 ~ /^[0-9]+$/ && $4 ~ /^[A-Za-z_][A-Za-z0-9_]*$/ {print $4}' opus_exports.txt; \
+                } > opus.def
+                "$LIBEXE" "/DEF:opus.def" "/MACHINE:X64" "/OUT:opus.lib"
+            popd
+            cp "$opus_workdir/opus.lib" "$stage_release/opus.lib"
+            cp "$opus_workdir/opus.lib" "$stage_debug/opus.lib"
         ;;
 
         darwin*)

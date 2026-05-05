@@ -157,11 +157,20 @@ pushd "$FMOD_SOURCE_DIR"
 
         darwin*)
             cp "api/core/lib/libfmod.dylib" "$stage_release"
+            # Stage SDK-bundled libopus.dylib (FSBank's encoder library, but
+            # exports full decode + multistream symbols too). Used by
+            # AYAstorm's FMOD codec plugin to add Opus support that libfmod
+            # itself lacks. Mirrors the existing linux64 libopus staging.
+            # NOTE: untested on macOS — path is a guess based on FMOD's
+            # api/core/lib/libfmod.dylib layout. If this `cp` fails, search
+            # the SDK for libopus.dylib and adjust the source path.
+            cp "api/fsbank/lib/libopus.dylib" "$stage_release"
             pushd "$stage_debug"
               fix_dylib_id libfmodL.dylib
             popd
             pushd "$stage_release"
               fix_dylib_id libfmod.dylib
+              fix_dylib_id libopus.dylib
             popd
         ;;
 

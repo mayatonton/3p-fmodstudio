@@ -132,6 +132,11 @@ pushd "$FMOD_SOURCE_DIR"
         "linux64")
             # Copy the relevant stuff around
             cp -a api/core/lib/x86_64/libfmod.so* "$stage_release"
+            # Stage SDK-bundled libopus (FSBank's encoder library, but exports
+            # full decode + multistream symbols too). Used by AYAstorm's FMOD
+            # codec plugin to add Opus support that libfmod itself lacks.
+            cp api/fsbank/lib/x86_64/libopus.so "$stage_release/libopus.so.0"
+            ln -sf libopus.so.0 "$stage_release/libopus.so"
         ;;
     esac
 
@@ -142,4 +147,11 @@ pushd "$FMOD_SOURCE_DIR"
     # Copy License (extracted from the readme)
     cp "doc/LICENSE.TXT" "$stage/LICENSES/fmodstudio.txt"
 popd
+
+# Stage Opus public headers (vendored from upstream Opus 1.3.1, MIT, matches
+# the libopus version FMOD SDK ships). Required to compile AYAstorm's FMOD
+# codec plugin that links against the SDK-bundled libopus above.
+mkdir -p "$stage/include/opus"
+cp opus_include/opus/*.h "$stage/include/opus/"
+cp opus_include/COPYING "$stage/LICENSES/opus.txt"
 

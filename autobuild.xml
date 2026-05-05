@@ -40,6 +40,7 @@
           <array>
             <string>include/*</string>
             <string>LICENSES/fmodstudio.txt</string>
+            <string>LICENSES/opus.txt</string>
           </array>
           <key>name</key>
           <string>common</string>

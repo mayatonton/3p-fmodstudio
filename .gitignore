@@ -11,3 +11,4 @@ fmodstudioapi*
 *.h.bak
 *.h.orig
 *.diff
+result.txt
